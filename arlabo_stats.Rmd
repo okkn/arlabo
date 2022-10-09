@@ -82,6 +82,56 @@ plot_arlabo_param <- function(f, title, var_name, var_name_label,
 ```
 
 ```{r}
+#' Bin毎のAR-laboのパラメーターを描画し、標準誤差SEMを表示する
+#'
+#' @param f 中間ファイルのファイルパスの文字列
+#' @param title グラフのタイトル
+#' @param var_name プロットする変数名の文字列
+#' @param var_name_label プロットする変数名に対応したラベルの文字列
+#' @param plot_within 描画する範囲の時刻の数値
+#' @param bin_width Binの幅の数値
+#' @param comp_col 比較する2群の情報が入っている列名の文字列
+#' @param comparison 比較する2群のグループの文字列のベクトル（`comp_col`の値）
+#' @param show_legend 凡例を表示するかどうかのフラグ（default: F）
+#' @param legend_title 凡例に表示するタイトルの文字列（default: ""）
+#'
+#' @return Bin毎のAR-laboのパラメーターと標準誤差のggplotオブジェクト
+#'
+#' @examples
+#' plot_arlabo_bin_param(
+#'   "./projects/btbr/temp/activity/activity_bin05_60min.csv",
+#'   title = "Bin width = 05 min",
+#'   var_name = "bin_activity", var_name_label = "Activity [m]",
+#'   plot_within = 60, bin_width = 5,
+#'   comp_col = "Line", comparison = c("B6", "BTBR"), show_legend = T
+#' )
+plot_arlabo_bin_param <- function(f, title, var_name, var_name_label,
+                            plot_within, bin_width, comp_col, comparison,
+                            show_legend = F, legend_title = "") {
+  read_csv(f, show_col_types = F) %>%
+    filter(!!rlang::sym(comp_col) %in% comparison) %>%
+    filter(bin < plot_within) %>%
+    mutate(comp_col_fctr = factor(!!rlang::sym(comp_col), levels = comparison),
+           bin = bin + bin_width) %>%
+    group_by(comp_col_fctr, bin) %>%
+    summarise(
+      mean = mean(!!rlang::sym(var_name)),
+      se = sd(!!rlang::sym(var_name)) / sqrt(n()),
+      .groups = "drop"
+    ) %>%
+    ggplot(aes(x = bin, y = mean, group = comp_col_fctr)) +
+    ggtitle(title) +
+    labs(x = "Time [min]", y = var_name_label) +
+    geom_path(size = 1) +
+    geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = 1) +
+    geom_point(size = 3, aes(shape = comp_col_fctr, fill = comp_col_fctr))+
+    scale_shape_manual(legend_title, values = c(21, 21)) +
+    scale_fill_manual(legend_title, values = c("white", "black")) +
+    {if(!show_legend) theme(legend.position = "none")}
+}
+```
+
+```{r}
 plot_arlabo <- function(project_dir, within_time, var_name, var_name_label,
                         comp_col, comparison, paired_col = NULL,
                         threshold_dist = NULL) {
@@ -118,6 +168,55 @@ plot_arlabo <- function(project_dir, within_time, var_name, var_name_label,
 ```
 
 ```{r}
+plot_arlabo_bin <- function(project_dir, bin_within_time, bin_width,
+                            var_name, var_name_label,
+                            comp_col, comparison,
+                            plot_within = NULL, threshold_dist = NULL) {
+  if (is.null(plot_within)) {
+    plot_within = bin_within_time
+  }
+  ret <- NULL
+  counter <- 1
+  for (b in bin_width) {
+    if (var_name == "bin_activity") {
+      f = file.path(project_dir, "temp", "activity",
+                    paste0("activity_bin", str_pad(b, 2, pad = "0"),
+                           "_", bin_within_time, "min.csv"))
+    } else if (var_name %in% c("bin_mean_dist", "bin_closest_dist")) {
+      f = file.path(project_dir, "temp", "dist",
+                    paste0("dist_bin", str_pad(b, 2, pad = "0"),
+                           "_", bin_within_time, "min.csv"))
+    } else if (var_name %in% c("bin_event_count", "bin_approach_count",
+                               "bin_receive_count", "bin_duration",
+                               "bin_approach_duration",
+                               "bin_receive_duration")){
+      f = file.path(project_dir, "temp", "inter",
+                    paste0("inter", threshold_dist,
+                           "_bin", str_pad(b, 2, pad = "0"),
+                           "_", bin_within_time, "min.csv"))
+    } else {
+      stop(paste0("Unexpected `var_name`: ", var_name))
+    }
+    g <- plot_arlabo_bin_param(
+      f,
+      title = paste0("Bin width = ", str_pad(b, 2, pad = "0"), " min"),
+      plot_within = plot_within, bin_width = b,
+      var_name = var_name, var_name_label = var_name_label,
+      comp_col = comp_col, comparison = comparison,
+      show_legend = {counter == length(bin_width)} # 最後のプロットはlegend表示
+    )
+    if (is.null(ret)) {
+      ret = g
+    } else {
+      ret = ret + g # patchwork
+    }
+    counter <- counter + 1
+  }
+  ret
+}
+```
+
+```{r}
 plot_arlabo(
   project_dir = "./projects/btbr", within_time = c(30, 60),
   var_name = "total_activity", var_name_label = "Total Activity",
@@ -144,6 +243,37 @@ plot_arlabo(
 ```
 
 ```{r}
+plot_arlabo_bin(
+  project_dir = "./projects/btbr",
+  bin_within_time = 60, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_activity", var_name_label = "Activity [m]",
+  comp_col = "Line", comparison = c("B6", "BTBR")
+)
+
+plot_arlabo_bin(
+  project_dir = "./projects/iba1_bdnf",
+  bin_within_time = 90, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_activity", var_name_label = "Activity [m]",
+  comp_col = "Line", comparison = c("Tg-Plus",  "Tg-Minus")
+)
+
+plot_arlabo_bin(
+  project_dir = "./projects/oxtr_idreadd",
+  bin_within_time = 90, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_activity", var_name_label = "Activity [m]",
+  comp_col = "Drug", comparison = c("SAL", "CNO")
+)
+
+plot_arlabo_bin(
+  project_dir = "./projects/oxtr_edreadd",
+  bin_within_time = 90, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_activity", var_name_label = "Activity [m]",
+  comp_col = "Drug", comparison = c("SAL", "CNO"),
+  plot_within = 60
+)
+```
+
+```{r}
 plot_arlabo(
   project_dir = "./projects/btbr", within_time = c(30, 60),
   var_name = "total_mean_dist", var_name_label = "Total Mean Distance",
@@ -170,6 +300,37 @@ plot_arlabo(
 ```
 
 ```{r}
+plot_arlabo_bin(
+  project_dir = "./projects/btbr",
+  bin_within_time = 60, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_mean_dist", var_name_label = "Mean Distance",
+  comp_col = "Line", comparison = c("B6", "BTBR")
+)
+
+plot_arlabo_bin(
+  project_dir = "./projects/iba1_bdnf",
+  bin_within_time = 90, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_mean_dist", var_name_label = "Mean Distance",
+  comp_col = "Line", comparison = c("Tg-Plus",  "Tg-Minus")
+)
+
+plot_arlabo_bin(
+  project_dir = "./projects/oxtr_idreadd",
+  bin_within_time = 90, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_mean_dist", var_name_label = "Mean Distance",
+  comp_col = "Drug", comparison = c("SAL", "CNO")
+)
+
+plot_arlabo_bin(
+  project_dir = "./projects/oxtr_edreadd",
+  bin_within_time = 90, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_mean_dist", var_name_label = "Mean Distance",
+  comp_col = "Drug", comparison = c("SAL", "CNO"),
+  plot_within = 60
+)
+```
+
+```{r}
 plot_arlabo(
   project_dir = "./projects/btbr", within_time = c(30, 60),
   var_name = "total_closest_dist", var_name_label = "Total Closest Distance",
@@ -196,6 +357,37 @@ plot_arlabo(
 ```
 
 ```{r}
+plot_arlabo_bin(
+  project_dir = "./projects/btbr",
+  bin_within_time = 60, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_closest_dist", var_name_label = "Closest Distance",
+  comp_col = "Line", comparison = c("B6", "BTBR")
+)
+
+plot_arlabo_bin(
+  project_dir = "./projects/iba1_bdnf",
+  bin_within_time = 90, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_closest_dist", var_name_label = "Closest Distance",
+  comp_col = "Line", comparison = c("Tg-Plus",  "Tg-Minus")
+)
+
+plot_arlabo_bin(
+  project_dir = "./projects/oxtr_idreadd",
+  bin_within_time = 90, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_closest_dist", var_name_label = "Closest Distance",
+  comp_col = "Drug", comparison = c("SAL", "CNO")
+)
+
+plot_arlabo_bin(
+  project_dir = "./projects/oxtr_edreadd",
+  bin_within_time = 90, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_closest_dist", var_name_label = "Closest Distance",
+  comp_col = "Drug", comparison = c("SAL", "CNO"),
+  plot_within = 60
+)
+```
+
+```{r}
 plot_arlabo(
   project_dir = "./projects/btbr", within_time = c(30, 60),
   var_name = "total_event_count", var_name_label = "Total Contact Count",
@@ -221,6 +413,41 @@ plot_arlabo(
   project_dir = "./projects/oxtr_edreadd", within_time = c(30, 60, 90),
   var_name = "total_event_count", var_name_label = "Total Contact Count",
   comp_col = "Drug", comparison = c("SAL", "CNO"), paired_col = "Mouse",
+  threshold_dist = 20
+)
+```
+
+```{r}
+plot_arlabo_bin(
+  project_dir = "./projects/btbr",
+  bin_within_time = 60, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_event_count", var_name_label = "Contact Count",
+  comp_col = "Line", comparison = c("B6", "BTBR"),
+  threshold_dist = 20
+)
+
+plot_arlabo_bin(
+  project_dir = "./projects/iba1_bdnf",
+  bin_within_time = 90, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_event_count", var_name_label = "Contact Count",
+  comp_col = "Line", comparison = c("Tg-Plus",  "Tg-Minus"),
+  threshold_dist = 20
+)
+
+plot_arlabo_bin(
+  project_dir = "./projects/oxtr_idreadd",
+  bin_within_time = 90, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_event_count", var_name_label = "Contact Count",
+  comp_col = "Drug", comparison = c("SAL", "CNO"),
+  threshold_dist = 20
+)
+
+plot_arlabo_bin(
+  project_dir = "./projects/oxtr_edreadd",
+  bin_within_time = 90, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_closest_dist", var_name_label = "Closest Distance",
+  comp_col = "Drug", comparison = c("SAL", "CNO"),
+  plot_within = 60,
   threshold_dist = 20
 )
 ```
@@ -256,6 +483,41 @@ plot_arlabo(
 ```
 
 ```{r}
+plot_arlabo_bin(
+  project_dir = "./projects/btbr",
+  bin_within_time = 60, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_approach_count", var_name_label = "Active Contact Count",
+  comp_col = "Line", comparison = c("B6", "BTBR"),
+  threshold_dist = 20
+)
+
+plot_arlabo_bin(
+  project_dir = "./projects/iba1_bdnf",
+  bin_within_time = 90, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_approach_count", var_name_label = "Active Contact Count",
+  comp_col = "Line", comparison = c("Tg-Plus",  "Tg-Minus"),
+  threshold_dist = 20
+)
+
+plot_arlabo_bin(
+  project_dir = "./projects/oxtr_idreadd",
+  bin_within_time = 90, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_approach_count", var_name_label = "Active Contact Count",
+  comp_col = "Drug", comparison = c("SAL", "CNO"),
+  threshold_dist = 20
+)
+
+plot_arlabo_bin(
+  project_dir = "./projects/oxtr_edreadd",
+  bin_within_time = 90, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_approach_count", var_name_label = "Active Contact Count",
+  comp_col = "Drug", comparison = c("SAL", "CNO"),
+  plot_within = 60,
+  threshold_dist = 20
+)
+```
+
+```{r}
 plot_arlabo(
   project_dir = "./projects/btbr", within_time = c(30, 60),
   var_name = "total_receive_count", var_name_label = "Total Passive Contact Count",
@@ -281,6 +543,41 @@ plot_arlabo(
   project_dir = "./projects/oxtr_edreadd", within_time = c(30, 60, 90),
   var_name = "total_receive_count", var_name_label = "Total Passive Contact Count",
   comp_col = "Drug", comparison = c("SAL", "CNO"), paired_col = "Mouse",
+  threshold_dist = 20
+)
+```
+
+```{r}
+plot_arlabo_bin(
+  project_dir = "./projects/btbr",
+  bin_within_time = 60, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_receive_count", var_name_label = "Passive Contact Count",
+  comp_col = "Line", comparison = c("B6", "BTBR"),
+  threshold_dist = 20
+)
+
+plot_arlabo_bin(
+  project_dir = "./projects/iba1_bdnf",
+  bin_within_time = 90, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_receive_count", var_name_label = "Passive Contact Count",
+  comp_col = "Line", comparison = c("Tg-Plus",  "Tg-Minus"),
+  threshold_dist = 20
+)
+
+plot_arlabo_bin(
+  project_dir = "./projects/oxtr_idreadd",
+  bin_within_time = 90, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_receive_count", var_name_label = "Passive Contact Count",
+  comp_col = "Drug", comparison = c("SAL", "CNO"),
+  threshold_dist = 20
+)
+
+plot_arlabo_bin(
+  project_dir = "./projects/oxtr_edreadd",
+  bin_within_time = 90, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_receive_count", var_name_label = "Passive Contact Count",
+  comp_col = "Drug", comparison = c("SAL", "CNO"),
+  plot_within = 60,
   threshold_dist = 20
 )
 ```
@@ -316,6 +613,41 @@ plot_arlabo(
 ```
 
 ```{r}
+plot_arlabo_bin(
+  project_dir = "./projects/btbr",
+  bin_within_time = 60, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_duration", var_name_label = "Contact Duration",
+  comp_col = "Line", comparison = c("B6", "BTBR"),
+  threshold_dist = 20
+)
+
+plot_arlabo_bin(
+  project_dir = "./projects/iba1_bdnf",
+  bin_within_time = 90, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_duration", var_name_label = "Contact Duration",
+  comp_col = "Line", comparison = c("Tg-Plus",  "Tg-Minus"),
+  threshold_dist = 20
+)
+
+plot_arlabo_bin(
+  project_dir = "./projects/oxtr_idreadd",
+  bin_within_time = 90, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_duration", var_name_label = "Contact Duration",
+  comp_col = "Drug", comparison = c("SAL", "CNO"),
+  threshold_dist = 20
+)
+
+plot_arlabo_bin(
+  project_dir = "./projects/oxtr_edreadd",
+  bin_within_time = 90, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_duration", var_name_label = "Contact Duration",
+  comp_col = "Drug", comparison = c("SAL", "CNO"),
+  plot_within = 60,
+  threshold_dist = 20
+)
+```
+
+```{r}
 plot_arlabo(
   project_dir = "./projects/btbr", within_time = c(30, 60),
   var_name = "total_approach_duration", var_name_label = "Total Active Contact Duration",
@@ -346,6 +678,41 @@ plot_arlabo(
 ```
 
 ```{r}
+plot_arlabo_bin(
+  project_dir = "./projects/btbr",
+  bin_within_time = 60, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_approach_duration", var_name_label = "Active Contact Duration",
+  comp_col = "Line", comparison = c("B6", "BTBR"),
+  threshold_dist = 20
+)
+
+plot_arlabo_bin(
+  project_dir = "./projects/iba1_bdnf",
+  bin_within_time = 90, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_approach_duration", var_name_label = "Active Contact Duration",
+  comp_col = "Line", comparison = c("Tg-Plus",  "Tg-Minus"),
+  threshold_dist = 20
+)
+
+plot_arlabo_bin(
+  project_dir = "./projects/oxtr_idreadd",
+  bin_within_time = 90, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_approach_duration", var_name_label = "Active Contact Duration",
+  comp_col = "Drug", comparison = c("SAL", "CNO"),
+  threshold_dist = 20
+)
+
+plot_arlabo_bin(
+  project_dir = "./projects/oxtr_edreadd",
+  bin_within_time = 90, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_approach_duration", var_name_label = "Active Contact Duration",
+  comp_col = "Drug", comparison = c("SAL", "CNO"),
+  plot_within = 60,
+  threshold_dist = 20
+)
+```
+
+```{r}
 plot_arlabo(
   project_dir = "./projects/btbr", within_time = c(30, 60),
   var_name = "total_receive_duration", var_name_label = "Total Passive Contact Duration",
@@ -371,6 +738,41 @@ plot_arlabo(
   project_dir = "./projects/oxtr_edreadd", within_time = c(30, 60, 90),
   var_name = "total_receive_duration", var_name_label = "Total Passive Contact Duration",
   comp_col = "Drug", comparison = c("SAL", "CNO"), paired_col = "Mouse",
+  threshold_dist = 20
+)
+```
+
+```{r}
+plot_arlabo_bin(
+  project_dir = "./projects/btbr",
+  bin_within_time = 60, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_receive_duration", var_name_label = "Passive Contact Duration",
+  comp_col = "Line", comparison = c("B6", "BTBR"),
+  threshold_dist = 20
+)
+
+plot_arlabo_bin(
+  project_dir = "./projects/iba1_bdnf",
+  bin_within_time = 90, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_receive_duration", var_name_label = "Passive Contact Duration",
+  comp_col = "Line", comparison = c("Tg-Plus",  "Tg-Minus"),
+  threshold_dist = 20
+)
+
+plot_arlabo_bin(
+  project_dir = "./projects/oxtr_idreadd",
+  bin_within_time = 90, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_receive_duration", var_name_label = "Passive Contact Duration",
+  comp_col = "Drug", comparison = c("SAL", "CNO"),
+  threshold_dist = 20
+)
+
+plot_arlabo_bin(
+  project_dir = "./projects/oxtr_edreadd",
+  bin_within_time = 90, bin_width = c(5, 10, 15, 30),
+  var_name = "bin_receive_duration", var_name_label = "Passive Contact Duration",
+  comp_col = "Drug", comparison = c("SAL", "CNO"),
+  plot_within = 60,
   threshold_dist = 20
 )
 ```
