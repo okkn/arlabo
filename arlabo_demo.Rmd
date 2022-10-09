@@ -236,8 +236,8 @@ create_temporary_files(
     comparison = c("CNO", "SAL"),
     paired_col = "Mouse"
   ),
-  within_time = c(30, 60),
-  bin_within_time = 60,
+  within_time = c(30, 60, 90),
+  bin_within_time = 90,
   bin_width = c(5, 10, 15, 30),
   threshold_dist = c(20, 30, 40)
 )
