@@ -398,20 +398,27 @@ calc_total_distance <- function(behavior, mice_info, within_time) {
   behavior %>%
     filter(time0 < within_time) %>%
     select(time, starts_with("dist")) %>% #必要な列のみselect
-    pivot_longer(cols = -time,
-                 names_to = c("IDa", "IDb"),
-                 values_to = "dist",
-                 names_pattern = "dist_([1-4])_([1-4])") %>%
-    group_by(time, IDa) %>%
-    summarise(
-      mean_dist = mean(dist, na.rm = T),
-      closest_dist = min(dist, na.rm = T),
-      .groups="drop"
+    mutate(
+      id1_mean_dist = rowMeans(cbind(dist_1_2, dist_1_3, dist_1_4), na.rm = T),
+      id2_mean_dist = rowMeans(cbind(dist_2_1, dist_2_3, dist_2_4), na.rm = T),
+      id3_mean_dist = rowMeans(cbind(dist_3_1, dist_3_2, dist_3_4), na.rm = T),
+      id4_mean_dist = rowMeans(cbind(dist_4_1, dist_4_2, dist_4_3), na.rm = T),
+      id1_closest_dist = pmin(dist_1_2, dist_1_3, dist_1_4, na.rm = T),
+      id2_closest_dist = pmin(dist_2_1, dist_2_3, dist_2_4, na.rm = T),
+      id3_closest_dist = pmin(dist_3_1, dist_3_2, dist_3_4, na.rm = T),
+      id4_closest_dist = pmin(dist_4_1, dist_4_2, dist_4_3, na.rm = T),
     ) %>%
+    select(time, ends_with("mean_dist"), ends_with("closest_dist")) %>%
+    pivot_longer(cols = -time,
+                 names_to = c("IDa", "variable"),
+                 values_to = "value",
+                 names_pattern = "id([1-4])_(.+)") %>%
+    pivot_wider(names_from = "variable", values_from = "value") %>%
     group_by(IDa) %>%
     summarise(total_mean_dist = mean(mean_dist, na.rm = T),
               total_closest_dist = mean(closest_dist, na.rm = T)) %>%
     left_join(mice_info, by = c("IDa" = "id"))
+  
 }
 
 #' 各binのマウス間距離を計算する（0～`within_time`[min]のデータを使用）
@@ -438,24 +445,27 @@ calc_bin_distance <- function(behavior, mice_info, within_time, bin_width) {
       # bin: 所属するbinの開始時刻[min]（どのbinに属するか）
       bin = as.integer(trunc(time0 / bin_width) * bin_width)
     ) %>%
-    pivot_longer(cols = -c(time, time0, bin),
-                 names_to = c("IDa", "IDb"),
-                 values_to = "dist",
-                 names_pattern = "dist_([1-4])_([1-4])") %>%
-    group_by(time, IDa, bin) %>%
-    summarise(
-      mean_dist = mean(dist, na.rm = T),
-      closest_dist = min(dist, na.rm = T),
-      .groups = "drop"
+    mutate(
+      id1_mean_dist = rowMeans(cbind(dist_1_2, dist_1_3, dist_1_4), na.rm = T),
+      id2_mean_dist = rowMeans(cbind(dist_2_1, dist_2_3, dist_2_4), na.rm = T),
+      id3_mean_dist = rowMeans(cbind(dist_3_1, dist_3_2, dist_3_4), na.rm = T),
+      id4_mean_dist = rowMeans(cbind(dist_4_1, dist_4_2, dist_4_3), na.rm = T),
+      id1_closest_dist = pmin(dist_1_2, dist_1_3, dist_1_4, na.rm = T),
+      id2_closest_dist = pmin(dist_2_1, dist_2_3, dist_2_4, na.rm = T),
+      id3_closest_dist = pmin(dist_3_1, dist_3_2, dist_3_4, na.rm = T),
+      id4_closest_dist = pmin(dist_4_1, dist_4_2, dist_4_3, na.rm = T),
     ) %>%
+    select(time, bin, ends_with("mean_dist"), ends_with("closest_dist")) %>%
+    pivot_longer(cols = -c(time, bin),
+                 names_to = c("IDa", "variable"),
+                 values_to = "value",
+                 names_pattern = "id([1-4])_(.+)") %>%
+    pivot_wider(names_from = "variable", values_from = "value") %>%
     group_by(IDa, bin) %>%
-    summarise(
-      bin_mean_dist = mean(mean_dist, na.rm = T),
-      bin_closest_dist = mean(closest_dist, na.rm = T),
-      .groups="drop"
-    ) %>%
-    left_join(mice_info, by = c("IDa" = "id")) %>%
-    return()
+    summarise(bin_mean_dist = mean(mean_dist, na.rm = T),
+              bin_closest_dist = mean(closest_dist, na.rm = T),
+              .groups="drop") %>%
+    left_join(mice_info, by = c("IDa" = "id"))
 }
 
 #' マウス間interactionを計算する（0～`within_time`[min]のデータを使用）
