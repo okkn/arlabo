@@ -1,0 +1,245 @@
+---
+title: "AR-LABO"
+output: html_notebook
+---
+
+```{r}
+sessionInfo()
+```
+
+```{r}
+library(tidyverse)
+```
+
+# arlabo.R から関数を読み込む
+```{r}
+.arlabo.env = new.env()
+sys.source("./arlabo.R", envir = .arlabo.env)
+attach(.arlabo.env)
+```
+
+# 内部で使用する関数の実行例
+```{r}
+# 関数の実行結果を確認するためのサンプルの「AR-laboが出力したCSVファイル」のパス
+example_btbr <- "./projects/btbr/data/★BTBR vs B6★20211201-1-C1.csv"
+example_iba1_bdnf <- "./projects/iba1_bdnf/data/0831-2-C1.csv"
+example_oxtr_id <- "./projects/oxtr_idreadd/data/0522-3-C1.csv"
+example_oxtr_ed <- "./projects/oxtr_edreadd/data/★eDREADD PVT★20211215-1-C1.csv"
+```
+
+```{r purl = FALSE}
+# 関数の実行結果を確認するためのサンプルの実験マウスリストのパス
+mice_list_path_btbr <- "./projects/btbr/list/btbr_b6_list.csv"
+mice_list_path_iba1_bdnf <- "./projects/iba1_bdnf/list/Iba1-BDNF_List.csv"
+mice_list_path_oxtr_id <- "./projects/oxtr_idreadd/list/Oxtr-list.csv"
+mice_list_path_oxtr_ed <- "./projects/oxtr_edreadd/list/Oxtr-edreadd-list.csv"
+```
+
+```{r}
+# 「AR-laboが出力したCSVファイル」からメタデータを抽出する関数
+read_metadata(example_btbr)
+read_metadata(example_iba1_bdnf)
+read_metadata(example_oxtr_id)
+read_metadata(example_oxtr_ed)
+```
+
+```{r}
+# 「AR-laboが出力したCSVファイル」からマウスのマーカー情報を抽出する関数
+read_marker(example_btbr)
+read_marker(example_iba1_bdnf)
+read_marker(example_oxtr_id)
+read_marker(example_oxtr_ed)
+```
+
+```{r}
+# 実験マウスの一覧をCSVファイルから抽出するとともに実験計画を設定する関数
+mice_list_btbr <- read_mice_list(mice_list_path_btbr,
+                                 comp_col = "Line",
+                                 comparison = c("BTBR", "B6"))
+mice_list_btbr
+mice_list_iba1_bdnf <- read_mice_list(mice_list_path_iba1_bdnf,
+                                      comp_col = "Line",
+                                      comparison = c("Tg-Plus", "Tg-Minus"))
+mice_list_iba1_bdnf
+mice_list_oxtr_id <- read_mice_list(mice_list_path_oxtr_id,
+                                    comp_col = "Drug",
+                                    comparison = c("CNO", "SAL"),
+                                    paired_col = "Mouse")
+mice_list_oxtr_id
+mice_list_oxtr_ed <- read_mice_list(mice_list_path_oxtr_ed,
+                                    comp_col = "Drug",
+                                    comparison = c("CNO", "SAL"),
+                                    paired_col = "Mouse")
+mice_list_oxtr_ed
+```
+
+```{r}
+# 実験計画についてはattributesとして保存している
+message("mice_list_btbr:")
+attributes(mice_list_btbr)$comp_col
+attributes(mice_list_btbr)$comparison
+attributes(mice_list_btbr)$paired_col
+
+message("mice_list_iba1_bdnf:")
+attributes(mice_list_iba1_bdnf)$comp_col
+attributes(mice_list_iba1_bdnf)$comparison
+attributes(mice_list_iba1_bdnf)$paired_col
+
+message("mice_list_oxtr_id:")
+attributes(mice_list_oxtr_id)$comp_col
+attributes(mice_list_oxtr_id)$comparison
+attributes(mice_list_oxtr_id)$paired_col
+
+message("mice_list_oxtr_ed:")
+attributes(mice_list_oxtr_ed)$comp_col
+attributes(mice_list_oxtr_ed)$comparison
+attributes(mice_list_oxtr_ed)$paired_col
+```
+
+```{r}
+mice_info_btbr <- read_mice_info(example_btbr, mice_list_btbr)
+mice_info_btbr
+
+mice_info_iba1_bdnf <- read_mice_info(example_iba1_bdnf, mice_list_iba1_bdnf)
+mice_info_iba1_bdnf
+
+mice_info_oxtr_id <- read_mice_info(example_oxtr_id, mice_list_oxtr_id)
+mice_info_oxtr_id
+
+mice_info_oxtr_ed <- read_mice_info(example_oxtr_ed, mice_list_oxtr_ed)
+mice_info_oxtr_ed
+```
+
+```{r}
+behavior_btbr <- read_mice_behavior(example_btbr, fps = 20)
+behavior_btbr
+
+behavior_iba1_bdnf <- read_mice_behavior(example_iba1_bdnf, fps = 20)
+behavior_iba1_bdnf
+
+behavior_oxtr_id <- read_mice_behavior(example_oxtr_id, fps = 20)
+behavior_oxtr_id
+
+behavior_oxtr_ed <- read_mice_behavior(example_oxtr_ed, fps = 20)
+behavior_oxtr_ed
+```
+
+```{r}
+inter20_btbr <- analyze_mice_interaction(behavior_btbr, threshold_dist = 20)
+inter20_btbr
+
+inter20_iba1_bdnf <- analyze_mice_interaction(behavior_iba1_bdnf, threshold_dist = 20)
+inter20_iba1_bdnf
+
+inter20_oxtr_id <- analyze_mice_interaction(behavior_oxtr_id, threshold_dist = 20)
+inter20_oxtr_id
+
+inter20_oxtr_ed <- analyze_mice_interaction(behavior_oxtr_ed, threshold_dist = 20)
+inter20_oxtr_ed
+```
+
+```{r}
+calc_total_activity(behavior_btbr, mice_info_btbr, within_time = 60)
+calc_total_activity(behavior_iba1_bdnf, mice_info_iba1_bdnf, within_time = 60)
+calc_total_activity(behavior_oxtr_id, mice_info_oxtr_id, within_time = 60)
+calc_total_activity(behavior_oxtr_ed, mice_info_oxtr_ed, within_time = 60)
+```
+
+```{r}
+calc_bin_activity(behavior_btbr, mice_info_btbr, within_time = 90, bin_width = 30)
+calc_bin_activity(behavior_iba1_bdnf, mice_info_iba1_bdnf, within_time = 90, bin_width = 30)
+calc_bin_activity(behavior_oxtr_id, mice_info_oxtr_id, within_time = 90, bin_width = 30)
+calc_bin_activity(behavior_oxtr_ed, mice_info_oxtr_ed, within_time = 90, bin_width = 30)
+```
+
+```{r}
+calc_total_distance(behavior_btbr, mice_info_btbr, within_time = 60)
+calc_total_distance(behavior_iba1_bdnf, mice_info_iba1_bdnf, within_time = 60)
+calc_total_distance(behavior_oxtr_id, mice_info_oxtr_id, within_time = 60)
+calc_total_distance(behavior_oxtr_ed, mice_info_oxtr_ed, within_time = 60)
+```
+
+```{r}
+calc_bin_distance(behavior_btbr, mice_info_btbr, within_time = 90, bin_width = 30)
+calc_bin_distance(behavior_iba1_bdnf, mice_info_iba1_bdnf, within_time = 90, bin_width = 30)
+calc_bin_distance(behavior_oxtr_id, mice_info_oxtr_id, within_time = 90, bin_width = 30)
+calc_bin_distance(behavior_oxtr_ed, mice_info_oxtr_ed, within_time = 90, bin_width = 30)
+```
+
+```{r}
+calc_total_interaction(inter20_btbr, mice_info_btbr, within_time = 60)
+calc_total_interaction(inter20_iba1_bdnf, mice_info_iba1_bdnf, within_time = 60)
+calc_total_interaction(inter20_oxtr_id, mice_info_oxtr_id, within_time = 60)
+calc_total_interaction(inter20_oxtr_ed, mice_info_oxtr_ed, within_time = 60)
+```
+
+```{r}
+calc_bin_interaction(inter20_btbr, mice_info_btbr, within_time = 90, bin_width = 30)
+calc_bin_interaction(inter20_iba1_bdnf, mice_info_iba1_bdnf, within_time = 90, bin_width = 30)
+calc_bin_interaction(inter20_oxtr_id, mice_info_oxtr_id, within_time = 90, bin_width = 30)
+calc_bin_interaction(inter20_oxtr_ed, mice_info_oxtr_ed, within_time = 90, bin_width = 30)
+```
+
+# 統計解析等を行う前の生の結果を一時ファイルとして保存する
+```{r}
+create_temporary_files(
+  project_dir = "./projects/btbr",
+  mice_list = read_mice_list(
+    "./projects/btbr/list/btbr_b6_list.csv",
+    comp_col = "Line",
+    comparison = c("BTBR", "B6")
+  ),
+  within_time = c(30, 60),
+  bin_within_time = 60,
+  bin_width = c(5, 10, 15, 30),
+  threshold_dist = c(20, 30, 40)
+)
+```
+
+```{r}
+create_temporary_files(
+  project_dir = "./projects/iba1_bdnf",
+  mice_list = read_mice_list(
+    "./projects/iba1_bdnf/list/Iba1-BDNF_List.csv",
+    comp_col = "Line",
+    comparison = c("Tg-Plus", "Tg-Minus")
+  ),
+  within_time = c(30, 60, 90),
+  bin_within_time = 90,
+  bin_width = c(5, 10, 15, 30),
+  threshold_dist = c(20, 30, 40)
+)
+```
+
+```{r}
+create_temporary_files(
+  project_dir = "./projects/oxtr_idreadd",
+  mice_list = read_mice_list(
+    "./projects/oxtr_idreadd/list/Oxtr-list.csv",
+    comp_col = "Drug",
+    comparison = c("CNO", "SAL"),
+    paired_col = "Mouse"
+  ),
+  within_time = c(30, 60, 90),
+  bin_within_time = 90,
+  bin_width = c(5, 10, 15, 30),
+  threshold_dist = c(20, 30, 40)
+)
+```
+
+```{r}
+create_temporary_files(
+  project_dir = "./projects/oxtr_edreadd",
+  mice_list = read_mice_list(
+    "./projects/oxtr_edreadd/list/Oxtr-edreadd-list.csv",
+    comp_col = "Drug",
+    comparison = c("CNO", "SAL"),
+    paired_col = "Mouse"
+  ),
+  within_time = c(30, 60),
+  bin_within_time = 60,
+  bin_width = c(5, 10, 15, 30),
+  threshold_dist = c(20, 30, 40)
+)
+```
+
