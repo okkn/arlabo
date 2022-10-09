@@ -1,0 +1,376 @@
+---
+title: "AR-LABO"
+output: html_notebook
+---
+
+```{r}
+sessionInfo()
+```
+
+```{r}
+library(tidyverse)
+library(rstatix)
+library(patchwork)
+```
+
+
+```{r}
+#' AR-laboの中間ファイルのパラメーターをプロットし、有意差を表示する
+#'
+#' @param f 中間ファイルのファイルパスの文字列
+#' @param title グラフのタイトル
+#' @param var_name プロットする変数名の文字列
+#' @param var_name_label プロットする変数名に対応したラベルの文字列
+#' @param comp_col 比較する2群の情報が入っている列名の文字列
+#' @param comparison 比較する2群のグループの文字列のベクトル（`comp_col`の値）
+#' @param paried_col (対応のあるデータの場合) 対応の情報が入っている列名の文字列
+#'
+#' @return データの分布と有意差の有無をプロットしたggplotオブジェクト
+#'
+#' @examples
+#' plot_arlabo_param(
+#'   "./projects/btbr/temp/activity/activity_total_30min.csv",
+#'   title = "0-30min",
+#'   var_name = "total_activity", var_name_label = "Total Activity",
+#'   comp_col = "Line", comparison = c("B6", "BTBR")
+#' )
+#' 
+#' plot_arlabo_param(
+#'   "./projects/oxtr_edreadd/temp/activity/activity_total_90min.csv",
+#'   title = "0-90min",
+#'   var_name = "total_activity", var_name_label = "Total Activity",
+#'   comp_col = "Drug", comparison = c("SAL", "CNO"), paired_col = "Mouse"
+#' )
+plot_arlabo_param <- function(f, title, var_name, var_name_label,
+                                  comp_col, comparison, paired_col = NULL) {
+  if (!is.null(paired_col)) {
+    # 対応のあるデータの場合
+    read_csv(f, show_col_types = F) %>%
+      filter(!!rlang::sym(comp_col) %in% comparison) %>%
+      # 正しくpaired t-testするには並替え必須
+      arrange(!!rlang::sym(paired_col), !!rlang::sym(comp_col)) %>%
+      ggplot(
+        aes(x = !!rlang::sym(comp_col), y = !!rlang::sym(var_name),
+            group = !!rlang::sym(paired_col))
+      ) +
+      ggtitle(title) +
+      labs(x = element_blank(), y = var_name_label) +
+      geom_point(size = 2) + 
+      geom_path(size = 0.5) +
+      scale_x_discrete(limit = comparison) +
+      ggsignif::geom_signif(
+        comparisons = list(comparison),
+        test = "t.test", test.args = list(paired = T), # paired t-test
+        map_signif_level = TRUE
+      )
+  } else {
+    # 対応のないデータの場合
+    read_csv(f, show_col_types = F) %>%
+      filter(!!rlang::sym(comp_col) %in% comparison) %>%
+      ggplot(aes(x = !!rlang::sym(comp_col), y = !!rlang::sym(var_name))) +
+      ggtitle(title) +
+      labs(x = element_blank(), y = var_name_label) +
+      geom_jitter(size = 1, width=0.1) +
+      scale_x_discrete(limit = comparison) +
+      ggsignif::geom_signif(
+        comparisons = list(comparison),
+        test = "t.test", test.args = list(paired = F), # unpaired t-test
+        map_signif_level = TRUE
+      )
+  }
+}
+```
+
+```{r}
+plot_arlabo <- function(project_dir, within_time, var_name, var_name_label,
+                        comp_col, comparison, paired_col = NULL,
+                        threshold_dist = NULL) {
+  ret <- NULL
+  for (t in within_time) {
+    if (var_name == "total_activity") {
+      f = file.path(project_dir, "temp", "activity",
+                    paste0("activity_total_", t, "min.csv"))
+    } else if (var_name %in% c("total_mean_dist", "total_closest_dist")) {
+      f = file.path(project_dir, "temp", "dist",
+                    paste0("dist_total_", t, "min.csv"))
+    } else if (var_name %in% c("total_event_count", "total_approach_count",
+                               "total_receive_count", "total_duration",
+                               "total_approach_duration",
+                               "total_receive_duration")){
+      f = file.path(project_dir, "temp", "inter",
+                    paste0("inter", threshold_dist, "_total_", t, "min.csv"))
+    } else {
+      stop(paste0("Unexpected `var_name`: ", var_name))
+    }
+    g <- plot_arlabo_param(
+      f, title = paste0("0-", t, "min"),
+      var_name = var_name, var_name_label = var_name_label,
+      comp_col = comp_col, comparison = comparison, paired_col = paired_col
+    )
+    if (is.null(ret)) {
+      ret = g
+    } else {
+      ret = ret + g # patchwork
+    }
+  }
+  ret
+}
+```
+
+```{r}
+plot_arlabo(
+  project_dir = "./projects/btbr", within_time = c(30, 60),
+  var_name = "total_activity", var_name_label = "Total Activity",
+  comp_col = "Line", comparison = c("B6", "BTBR")
+)
+
+plot_arlabo(
+  project_dir = "./projects/iba1_bdnf", within_time = c(30, 60, 90),
+  var_name = "total_activity", var_name_label = "Total Activity",
+  comp_col = "Line", comparison = c("Tg-Plus",  "Tg-Minus")
+)
+
+plot_arlabo(
+  project_dir = "./projects/oxtr_idreadd", within_time = c(30, 60, 90),
+  var_name = "total_activity", var_name_label = "Total Activity",
+  comp_col = "Drug", comparison = c("SAL", "CNO"), paired_col = "Mouse"
+)
+
+plot_arlabo(
+  project_dir = "./projects/oxtr_edreadd", within_time = c(30, 60, 90),
+  var_name = "total_activity", var_name_label = "Total Activity",
+  comp_col = "Drug", comparison = c("SAL", "CNO"), paired_col = "Mouse"
+)
+```
+
+```{r}
+plot_arlabo(
+  project_dir = "./projects/btbr", within_time = c(30, 60),
+  var_name = "total_mean_dist", var_name_label = "Total Mean Distance",
+  comp_col = "Line", comparison = c("B6", "BTBR")
+)
+
+plot_arlabo(
+  project_dir = "./projects/iba1_bdnf", within_time = c(30, 60, 90),
+  var_name = "total_mean_dist", var_name_label = "Total Mean Distance",
+  comp_col = "Line", comparison = c("Tg-Plus",  "Tg-Minus")
+)
+
+plot_arlabo(
+  project_dir = "./projects/oxtr_idreadd", within_time = c(30, 60, 90),
+  var_name = "total_mean_dist", var_name_label = "Total Mean Distance",
+  comp_col = "Drug", comparison = c("SAL", "CNO"), paired_col = "Mouse"
+)
+
+plot_arlabo(
+  project_dir = "./projects/oxtr_edreadd", within_time = c(30, 60, 90),
+  var_name = "total_mean_dist", var_name_label = "Total Mean Distance",
+  comp_col = "Drug", comparison = c("SAL", "CNO"), paired_col = "Mouse"
+)
+```
+
+```{r}
+plot_arlabo(
+  project_dir = "./projects/btbr", within_time = c(30, 60),
+  var_name = "total_closest_dist", var_name_label = "Total Closest Distance",
+  comp_col = "Line", comparison = c("B6", "BTBR")
+)
+
+plot_arlabo(
+  project_dir = "./projects/iba1_bdnf", within_time = c(30, 60, 90),
+  var_name = "total_closest_dist", var_name_label = "Total Closest Distance",
+  comp_col = "Line", comparison = c("Tg-Plus",  "Tg-Minus")
+)
+
+plot_arlabo(
+  project_dir = "./projects/oxtr_idreadd", within_time = c(30, 60, 90),
+  var_name = "total_closest_dist", var_name_label = "Total Closest Distance",
+  comp_col = "Drug", comparison = c("SAL", "CNO"), paired_col = "Mouse"
+)
+
+plot_arlabo(
+  project_dir = "./projects/oxtr_edreadd", within_time = c(30, 60, 90),
+  var_name = "total_closest_dist", var_name_label = "Total Closest Distance",
+  comp_col = "Drug", comparison = c("SAL", "CNO"), paired_col = "Mouse"
+)
+```
+
+```{r}
+plot_arlabo(
+  project_dir = "./projects/btbr", within_time = c(30, 60),
+  var_name = "total_event_count", var_name_label = "Total Contact Count",
+  comp_col = "Line", comparison = c("B6", "BTBR"),
+  threshold_dist = 20
+)
+
+plot_arlabo(
+  project_dir = "./projects/iba1_bdnf", within_time = c(30, 60, 90),
+  var_name = "total_event_count", var_name_label = "Total Contact Count",
+  comp_col = "Line", comparison = c("Tg-Plus",  "Tg-Minus"),
+  threshold_dist = 20
+)
+
+plot_arlabo(
+  project_dir = "./projects/oxtr_idreadd", within_time = c(30, 60, 90),
+  var_name = "total_event_count", var_name_label = "Total Contact Count",
+  comp_col = "Drug", comparison = c("SAL", "CNO"), paired_col = "Mouse",
+  threshold_dist = 20
+)
+
+plot_arlabo(
+  project_dir = "./projects/oxtr_edreadd", within_time = c(30, 60, 90),
+  var_name = "total_event_count", var_name_label = "Total Contact Count",
+  comp_col = "Drug", comparison = c("SAL", "CNO"), paired_col = "Mouse",
+  threshold_dist = 20
+)
+```
+
+```{r}
+plot_arlabo(
+  project_dir = "./projects/btbr", within_time = c(30, 60),
+  var_name = "total_approach_count", var_name_label = "Total Active Contact Count",
+  comp_col = "Line", comparison = c("B6", "BTBR"),
+  threshold_dist = 20
+)
+
+plot_arlabo(
+  project_dir = "./projects/iba1_bdnf", within_time = c(30, 60, 90),
+  var_name = "total_approach_count", var_name_label = "Total Active Contact Count",
+  comp_col = "Line", comparison = c("Tg-Plus",  "Tg-Minus"),
+  threshold_dist = 20
+)
+
+plot_arlabo(
+  project_dir = "./projects/oxtr_idreadd", within_time = c(30, 60, 90),
+  var_name = "total_approach_count", var_name_label = "Total Active Contact Count",
+  comp_col = "Drug", comparison = c("SAL", "CNO"), paired_col = "Mouse",
+  threshold_dist = 20
+)
+
+plot_arlabo(
+  project_dir = "./projects/oxtr_edreadd", within_time = c(30, 60, 90),
+  var_name = "total_approach_count", var_name_label = "Total Active Contact Count",
+  comp_col = "Drug", comparison = c("SAL", "CNO"), paired_col = "Mouse",
+  threshold_dist = 20
+)
+```
+
+```{r}
+plot_arlabo(
+  project_dir = "./projects/btbr", within_time = c(30, 60),
+  var_name = "total_receive_count", var_name_label = "Total Passive Contact Count",
+  comp_col = "Line", comparison = c("B6", "BTBR"),
+  threshold_dist = 20
+)
+
+plot_arlabo(
+  project_dir = "./projects/iba1_bdnf", within_time = c(30, 60, 90),
+  var_name = "total_receive_count", var_name_label = "Total Passive Contact Count",
+  comp_col = "Line", comparison = c("Tg-Plus",  "Tg-Minus"),
+  threshold_dist = 20
+)
+
+plot_arlabo(
+  project_dir = "./projects/oxtr_idreadd", within_time = c(30, 60, 90),
+  var_name = "total_receive_count", var_name_label = "Total Passive Contact Count",
+  comp_col = "Drug", comparison = c("SAL", "CNO"), paired_col = "Mouse",
+  threshold_dist = 20
+)
+
+plot_arlabo(
+  project_dir = "./projects/oxtr_edreadd", within_time = c(30, 60, 90),
+  var_name = "total_receive_count", var_name_label = "Total Passive Contact Count",
+  comp_col = "Drug", comparison = c("SAL", "CNO"), paired_col = "Mouse",
+  threshold_dist = 20
+)
+```
+
+```{r}
+plot_arlabo(
+  project_dir = "./projects/btbr", within_time = c(30, 60),
+  var_name = "total_duration", var_name_label = "Total Contact Duration",
+  comp_col = "Line", comparison = c("B6", "BTBR"),
+  threshold_dist = 20
+)
+
+plot_arlabo(
+  project_dir = "./projects/iba1_bdnf", within_time = c(30, 60, 90),
+  var_name = "total_duration", var_name_label = "Total Contact Duration",
+  comp_col = "Line", comparison = c("Tg-Plus",  "Tg-Minus"),
+  threshold_dist = 20
+)
+
+plot_arlabo(
+  project_dir = "./projects/oxtr_idreadd", within_time = c(30, 60, 90),
+  var_name = "total_duration", var_name_label = "Total Contact Duration",
+  comp_col = "Drug", comparison = c("SAL", "CNO"), paired_col = "Mouse",
+  threshold_dist = 20
+)
+
+plot_arlabo(
+  project_dir = "./projects/oxtr_edreadd", within_time = c(30, 60, 90),
+  var_name = "total_duration", var_name_label = "Total Contact Duration",
+  comp_col = "Drug", comparison = c("SAL", "CNO"), paired_col = "Mouse",
+  threshold_dist = 20
+)
+```
+
+```{r}
+plot_arlabo(
+  project_dir = "./projects/btbr", within_time = c(30, 60),
+  var_name = "total_approach_duration", var_name_label = "Total Active Contact Duration",
+  comp_col = "Line", comparison = c("B6", "BTBR"),
+  threshold_dist = 20
+)
+
+plot_arlabo(
+  project_dir = "./projects/iba1_bdnf", within_time = c(30, 60, 90),
+  var_name = "total_approach_duration", var_name_label = "Total Active Contact Duration",
+  comp_col = "Line", comparison = c("Tg-Plus",  "Tg-Minus"),
+  threshold_dist = 20
+)
+
+plot_arlabo(
+  project_dir = "./projects/oxtr_idreadd", within_time = c(30, 60, 90),
+  var_name = "total_approach_duration", var_name_label = "Total Active Contact Duration",
+  comp_col = "Drug", comparison = c("SAL", "CNO"), paired_col = "Mouse",
+  threshold_dist = 20
+)
+
+plot_arlabo(
+  project_dir = "./projects/oxtr_edreadd", within_time = c(30, 60, 90),
+  var_name = "total_approach_duration", var_name_label = "Total Active Contact Duration",
+  comp_col = "Drug", comparison = c("SAL", "CNO"), paired_col = "Mouse",
+  threshold_dist = 20
+)
+```
+
+```{r}
+plot_arlabo(
+  project_dir = "./projects/btbr", within_time = c(30, 60),
+  var_name = "total_receive_duration", var_name_label = "Total Passive Contact Duration",
+  comp_col = "Line", comparison = c("B6", "BTBR"),
+  threshold_dist = 20
+)
+
+plot_arlabo(
+  project_dir = "./projects/iba1_bdnf", within_time = c(30, 60, 90),
+  var_name = "total_receive_duration", var_name_label = "Total Passive Contact Duration",
+  comp_col = "Line", comparison = c("Tg-Plus",  "Tg-Minus"),
+  threshold_dist = 20
+)
+
+plot_arlabo(
+  project_dir = "./projects/oxtr_idreadd", within_time = c(30, 60, 90),
+  var_name = "total_receive_duration", var_name_label = "Total Passive Contact Duration",
+  comp_col = "Drug", comparison = c("SAL", "CNO"), paired_col = "Mouse",
+  threshold_dist = 20
+)
+
+plot_arlabo(
+  project_dir = "./projects/oxtr_edreadd", within_time = c(30, 60, 90),
+  var_name = "total_receive_duration", var_name_label = "Total Passive Contact Duration",
+  comp_col = "Drug", comparison = c("SAL", "CNO"), paired_col = "Mouse",
+  threshold_dist = 20
+)
+```
