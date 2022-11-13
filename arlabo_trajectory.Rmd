@@ -1,0 +1,447 @@
+---
+title: "AR-LABO"
+output: html_notebook
+---
+
+```{r}
+sessionInfo()
+```
+
+```{r}
+library(tidyverse)
+library(rstatix)
+```
+
+# arlabo.R から関数を読み込む
+```{r}
+.arlabo.env = new.env()
+sys.source("./arlabo.R", envir = .arlabo.env)
+attach(.arlabo.env)
+```
+
+```{r}
+# 関数の実行結果を確認するためのサンプルの「AR-laboが出力したCSVファイル」のパス
+example_btbr <- "./projects/btbr/data/★BTBR vs B6★20211201-1-C1.csv"
+example_iba1_bdnf <- "./projects/iba1_bdnf/data/0831-2-C1.csv"
+example_oxtr_id <- "./projects/oxtr_idreadd/data/0522-3-C1.csv"
+example_oxtr_ed <- "./projects/oxtr_edreadd/data/★eDREADD PVT★20211215-1-C1.csv"
+```
+
+```{r}
+behavior_btbr <- read_mice_behavior(example_btbr, fps = 20)
+behavior_btbr
+
+behavior_iba1_bdnf <- read_mice_behavior(example_iba1_bdnf, fps = 20)
+behavior_iba1_bdnf
+
+behavior_oxtr_id <- read_mice_behavior(example_oxtr_id, fps = 20)
+behavior_oxtr_id
+
+behavior_oxtr_ed <- read_mice_behavior(example_oxtr_ed, fps = 20)
+behavior_oxtr_ed
+```
+
+```{r}
+draw_trajectory <- function(behavior, time_point, duration,
+                            draw_id = c(1, 2, 3, 4),
+                            cage_width = 376, cage_height = 221) {
+  long <- behavior %>%
+    select(
+      time, id_1_x, id_1_y, id_2_x, id_2_y, id_3_x, id_3_y, id_4_x, id_4_y
+    ) %>%
+    pivot_longer(cols = -time, 
+                 names_pattern = "id_([1-4])_([xy])",
+                 names_to = c("id", "axis")) %>%
+    pivot_wider(names_from = axis)
+  
+  x <- long$x
+  y <- long$y
+  
+  ox = optim(median(x),
+             function(cent, x_) sum(x_ > cent + cage_width / 2 | x_ < cent - cage_width / 2),
+             x_ = x, method = "Brent", lower = min(x), upper = max(x))$par
+  oy = optim(median(y),
+             function(cent, y_) sum(y_ > cent + cage_height / 2 | y_ < cent - cage_height / 2),
+             y_ = y, method = "Brent", lower = min(y), upper = max(y))$par
+  
+  long %>%
+    filter(id %in% draw_id) %>%
+    mutate(time0 = as.double(difftime(time, min(time), unit = "mins"))) %>%
+    filter(time_point - duration < time0, time0 <= time_point) %>%
+    group_by(id) %>%
+    mutate(x_last = last(x), y_last = last(y)) %>%
+    ggplot() +
+    geom_path(aes(x, y, color = id, alpha = time0)) +
+    geom_point(aes(x_last, y_last, color = id), size = 2) +
+    labs(title = paste0("Start = ", time_point - duration, " [min], ",
+                        "End = ", time_point, " [min], ",
+                        "Center = (", round(ox, 2), ", ", round(oy, 2), ")")) +
+    scale_colour_manual(
+      breaks = c("1", "2", "3", "4"),
+      values = c("#F8766D", "#7CAE00", "#00BFC4", "#C77CFF")
+    ) + 
+    geom_rect(aes(xmin = ox - cage_width / 2, xmax = ox + cage_width / 2,
+                  ymin = oy - cage_height / 2, ymax = oy + cage_height / 2), 
+              fill=NA, color = "black", alpha = 0.5) +
+    coord_fixed()
+}
+```
+
+```{r}
+behavior_iba1_bdnf %>%
+  draw_trajectory(6, 0.2)
+```
+
+```{r, fig.width=7, fig.height=15}
+library(patchwork)
+behavior_iba1_bdnf %>%
+  draw_trajectory(5.95, 0.05) /
+behavior_iba1_bdnf %>%
+  draw_trajectory(5.97, 0.05) /
+behavior_iba1_bdnf %>%
+  draw_trajectory(5.99, 0.05) /
+behavior_iba1_bdnf %>%
+  draw_trajectory(6.01, 0.05)
+```
+
+```{r}
+#for (f in list.files("projects/iba1_bdnf/data")) {
+#  print(f)
+#  read_mice_behavior(file.path("projects/iba1_bdnf/data", f), fps = 20) %>%
+#    draw_trajectory(30, 30)
+#  ggsave(file.path("projects/iba1_bdnf/trajectory", paste0(f, "_30min.png")), device = "png")
+#}
+```
+
+```{r}
+read_mice_behavior(file.path("projects/iba1_bdnf/data", "0907-1-C2.csv"), fps = 20) %>%
+  draw_trajectory(60, 60)
+```
+
+```{r}
+read_mice_behavior_remove_cage_outlier <- function(file_path, fps, scale = 1.1, cage_width = 376, cage_height = 221) {
+  # メタデータの13行分をskipして座標のデータをデータフレームとして読み込む
+  mice_behavior <- read_csv(file_path, skip = 13, show_col_types = F) %>%
+    suppressWarnings()
+  
+  # AR-LABOのバージョンの違いで出力される列名が異なるため場合分け
+  # また、Rで扱いやすいように列名を変更する。
+  if ("ID-1 [X(mm)]" %in% names(mice_behavior)) {
+    mice_behavior <- mice_behavior %>%
+      rename(
+        time = `date time`,
+        id_1_x = `ID-1 [X(mm)]`, id_1_y = `ID-1 [Y(mm)]`,
+        id_2_x = `ID-2 [X(mm)]`, id_2_y = `ID-2 [Y(mm)]`,
+        id_3_x = `ID-3 [X(mm)]`, id_3_y = `ID-3 [Y(mm)]`,
+        id_4_x = `ID-4 [X(mm)]`, id_4_y = `ID-4 [Y(mm)]`
+      )
+  } else {
+    mice_behavior <- mice_behavior %>%
+      rename(
+        time = `date time`,
+        id_1_x = `ID-1 [Marker-X(mm)]`, id_1_y = `ID-1 [Marker-Y(mm)]`,
+        id_2_x = `ID-2 [Marker-X(mm)]`, id_2_y = `ID-2 [Marker-Y(mm)]`,
+        id_3_x = `ID-3 [Marker-X(mm)]`, id_3_y = `ID-3 [Marker-Y(mm)]`,
+        id_4_x = `ID-4 [Marker-X(mm)]`, id_4_y = `ID-4 [Marker-Y(mm)]`
+      )
+  }
+  
+  # 古いバージョンのAR-LABOの仕様でコンマの数が合わないことがある
+  # その場合、右端の値が、数値にコンマのついた文字列となってしまうため修正
+  if (!is.numeric(mice_behavior$id_4_y)) {
+    mice_behavior <- mice_behavior %>%
+      mutate(
+        id_4_y = id_4_y %>%
+          str_sub(end = -2) %>%
+          as.numeric()
+      )
+  }
+  
+  mice_behavior_long <- mice_behavior %>%
+    select( # 必要な変数のみをselect
+      time, id_1_x, id_1_y, id_2_x, id_2_y, id_3_x, id_3_y, id_4_x, id_4_y
+    ) %>%
+    distinct(time, .keep_all = T) %>% # timeに重複がないことを保証
+    
+    # 一旦time以外の変数をWide形式 → Long形式に変換（処理の都合）
+    pivot_longer(cols = -time, 
+                 names_pattern = "id_([1-4])_([xy])",
+                 names_to = c("id", "axis")) %>%
+    pivot_wider(names_from = axis) # Axisはwide形式とする（idはlongのまま）
+
+  # ケージの中心を推定する
+  x <- mice_behavior_long$x
+  x <- x[!is.na(x)]
+  y <- mice_behavior_long$y
+  y <- y[!is.na(y)]
+  ox = optim(median(x),
+             function(cent, x_) sum(x_ > cent + cage_width / 2 | x_ < cent - cage_width / 2),
+             x_ = x, method = "Brent", lower = min(x), upper = max(x))$par
+  oy = optim(median(y),
+             function(cent, y_) sum(y_ > cent + cage_height / 2 | y_ < cent - cage_height / 2),
+             y_ = y, method = "Brent", lower = min(y), upper = max(y))$par
+  
+  mice_behavior_long %>%
+    mutate(  # ケージのサイズの1.1倍よりも外側の座標を先に除外する。
+      x = ifelse(x > ox + cage_width / 2 * scale | x < ox - cage_width / 2 * scale, NA, x),
+      y = ifelse(y > oy + cage_height / 2 * scale | y < oy - cage_height / 2 * scale, NA, y)
+    ) %>%
+    mutate(
+      x = ifelse(is.na(y), NA, x),
+      y = ifelse(is.na(x), NA, y)
+    ) %>%
+    group_nest(id) %>% # idごとに処理するためにnest
+    mutate(
+      # 各idが最初に出現する時刻求め、`mintime`として保存する
+      mintime = map(data, ~ drop_na(.)) %>% map(~ min(.$time)),
+      
+      # 座標の欠損値を線形補間（imputeTS::na_interpolation）
+      data = map(
+        data, # IDごとに分けたサブセットのデータフレームに対して、
+        ~ mutate(., across(-time, #時刻以外の列（=xy座標）の欠損値を線形補間
+                           ~ imputeTS::na_interpolation(., option = "linear")))
+      )
+    ) %>%
+    unnest(cols = c(data, mintime)) %>% # nestを解除
+    filter(time >= max(mintime)) %>% # すべてのidが出揃った時刻以降を使用する
+    select(-mintime) %>% # mintimeは以降使わないため外す
+    # 再度Long形式→Wide形式に戻す。
+    pivot_wider(names_from = id,
+                values_from = c(x, y),
+                names_glue = "id_{id}_{.value}") %>%
+    
+    mutate(
+      # time0: 開始時刻を0とした時刻
+      time0 = difftime(time, min(time), unit = "mins"),
+      
+      # move: 1フレームごとの移動距離（足し合わせたものが活動量activity）
+      id_1_move = sqrt((id_1_x - lag(id_1_x)) ^ 2 + (id_1_y - lag(id_1_y)) ^ 2),
+      id_2_move = sqrt((id_2_x - lag(id_2_x)) ^ 2 + (id_2_y - lag(id_2_y)) ^ 2),
+      id_3_move = sqrt((id_3_x - lag(id_3_x)) ^ 2 + (id_3_y - lag(id_3_y)) ^ 2),
+      id_4_move = sqrt((id_4_x - lag(id_4_x)) ^ 2 + (id_4_y - lag(id_4_y)) ^ 2),
+      
+      # dist: マウス間距離
+      dist_1_2 = sqrt((id_1_x - id_2_x) ^ 2 + (id_1_y - id_2_y) ^ 2),
+      dist_1_3 = sqrt((id_1_x - id_3_x) ^ 2 + (id_1_y - id_3_y) ^ 2),
+      dist_1_4 = sqrt((id_1_x - id_4_x) ^ 2 + (id_1_y - id_4_y) ^ 2),
+      dist_2_1 = dist_1_2,
+      dist_2_3 = sqrt((id_2_x - id_3_x) ^ 2 + (id_2_y - id_3_y) ^ 2),
+      dist_2_4 = sqrt((id_2_x - id_4_x) ^ 2 + (id_2_y - id_4_y) ^ 2),
+      dist_3_1 = dist_1_3,
+      dist_3_2 = dist_2_3,
+      dist_3_4 = sqrt((id_3_x - id_4_x) ^ 2 + (id_3_y - id_4_y) ^ 2),
+      dist_4_1 = dist_1_4,
+      dist_4_2 = dist_2_4,
+      dist_4_3 = dist_3_4,
+      
+      # 前後1秒間（`fps`フレーム）のmoveの移動和（Reverse, Forward）
+      across(ends_with("_move"),
+             list(rollR = ~ RcppRoll::roll_sum(., n = fps, align = "right", fill = NA),
+                  rollF = ~ RcppRoll::roll_sum(., n = fps, align = "left", fill = NA)))
+    )
+}
+```
+
+
+```{r}
+read_mice_behavior(file.path("projects/iba1_bdnf/data", "0907-1-C2.csv"), fps = 20) %>%
+  draw_trajectory(10, 10)
+```
+
+```{r}
+read_mice_behavior_remove_cage_outlier(file.path("projects/iba1_bdnf/data", "0907-1-C2.csv"), fps = 20) %>%
+  draw_trajectory(10, 10)
+```
+
+
+```{r}
+read_mice_behavior_remove_cage_outlier(file.path("projects/iba1_bdnf/data", "0907-1-C2.csv"), fps = 20) %>%
+  draw_trajectory(40, 1)
+```
+
+```{r}
+read_mice_behavior_remove_cage_outlier(file.path("projects/iba1_bdnf/data", "0907-1-C2.csv"), fps = 20) %>%
+  draw_trajectory(50, 1)
+```
+
+```{r}
+read_mice_behavior_remove_outliers <- function(file_path, fps, scale = 1.1, cage_width = 376, cage_height = 221) {
+  # メタデータの13行分をskipして座標のデータをデータフレームとして読み込む
+  mice_behavior <- read_csv(file_path, skip = 13, show_col_types = F) %>%
+    suppressWarnings()
+  
+  # AR-LABOのバージョンの違いで出力される列名が異なるため場合分け
+  # また、Rで扱いやすいように列名を変更する。
+  if ("ID-1 [X(mm)]" %in% names(mice_behavior)) {
+    mice_behavior <- mice_behavior %>%
+      rename(
+        time = `date time`,
+        id_1_x = `ID-1 [X(mm)]`, id_1_y = `ID-1 [Y(mm)]`,
+        id_2_x = `ID-2 [X(mm)]`, id_2_y = `ID-2 [Y(mm)]`,
+        id_3_x = `ID-3 [X(mm)]`, id_3_y = `ID-3 [Y(mm)]`,
+        id_4_x = `ID-4 [X(mm)]`, id_4_y = `ID-4 [Y(mm)]`
+      )
+  } else {
+    mice_behavior <- mice_behavior %>%
+      rename(
+        time = `date time`,
+        id_1_x = `ID-1 [Marker-X(mm)]`, id_1_y = `ID-1 [Marker-Y(mm)]`,
+        id_2_x = `ID-2 [Marker-X(mm)]`, id_2_y = `ID-2 [Marker-Y(mm)]`,
+        id_3_x = `ID-3 [Marker-X(mm)]`, id_3_y = `ID-3 [Marker-Y(mm)]`,
+        id_4_x = `ID-4 [Marker-X(mm)]`, id_4_y = `ID-4 [Marker-Y(mm)]`
+      )
+  }
+  
+  # 古いバージョンのAR-LABOの仕様でコンマの数が合わないことがある
+  # その場合、右端の値が、数値にコンマのついた文字列となってしまうため修正
+  if (!is.numeric(mice_behavior$id_4_y)) {
+    mice_behavior <- mice_behavior %>%
+      mutate(
+        id_4_y = id_4_y %>%
+          str_sub(end = -2) %>%
+          as.numeric()
+      )
+  }
+  
+  mice_behavior_long <- mice_behavior %>%
+    select( # 必要な変数のみをselect
+      time, id_1_x, id_1_y, id_2_x, id_2_y, id_3_x, id_3_y, id_4_x, id_4_y
+    ) %>%
+    distinct(time, .keep_all = T) %>% # timeに重複がないことを保証
+    mutate(
+      id_1_x_ma_mean = RcppRoll::roll_mean(id_1_x, n = 40, fill = NA, na.rm = TRUE),
+      id_1_x_ma_sd = RcppRoll::roll_sd(id_1_x, n = 40, fill = NA, na.rm = TRUE),
+      id_1_y_ma_mean = RcppRoll::roll_mean(id_1_y, n = 40, fill = NA, na.rm = TRUE),
+      id_1_y_ma_sd = RcppRoll::roll_sd(id_1_y, n = 40, fill = NA, na.rm = TRUE),
+      id_2_x_ma_mean = RcppRoll::roll_mean(id_2_x, n = 40, fill = NA, na.rm = TRUE),
+      id_2_x_ma_sd = RcppRoll::roll_sd(id_2_x, n = 40, fill = NA, na.rm = TRUE),
+      id_2_y_ma_mean = RcppRoll::roll_mean(id_2_y, n = 40, fill = NA, na.rm = TRUE),
+      id_2_y_ma_sd = RcppRoll::roll_sd(id_2_y, n = 40, fill = NA, na.rm = TRUE),
+      id_3_x_ma_mean = RcppRoll::roll_mean(id_3_x, n = 40, fill = NA, na.rm = TRUE),
+      id_3_x_ma_sd = RcppRoll::roll_sd(id_3_x, n = 40, fill = NA, na.rm = TRUE),
+      id_3_y_ma_mean = RcppRoll::roll_mean(id_3_y, n = 40, fill = NA, na.rm = TRUE),
+      id_3_y_ma_sd = RcppRoll::roll_sd(id_3_y, n = 40, fill = NA, na.rm = TRUE),
+      id_4_x_ma_mean = RcppRoll::roll_mean(id_4_x, n = 40, fill = NA, na.rm = TRUE),
+      id_4_x_ma_sd = RcppRoll::roll_sd(id_4_x, n = 40, fill = NA, na.rm = TRUE),
+      id_4_y_ma_mean = RcppRoll::roll_mean(id_4_y, n = 40, fill = NA, na.rm = TRUE),
+      id_4_y_ma_sd = RcppRoll::roll_sd(id_4_y, n = 40, fill = NA, na.rm = TRUE),
+    ) %>%
+    mutate(  # 前後2秒の移動平均から3sd以上離れている座標は除外する。
+      id_1_x = ifelse(abs(id_1_x - id_1_x_ma_mean) > id_1_x_ma_sd * 3, NA, id_1_x),
+      id_1_y = ifelse(abs(id_1_y - id_1_y_ma_mean) > id_1_y_ma_sd * 3, NA, id_1_y),
+      id_2_x = ifelse(abs(id_2_x - id_2_x_ma_mean) > id_2_x_ma_sd * 3, NA, id_2_x),
+      id_2_y = ifelse(abs(id_2_y - id_2_y_ma_mean) > id_2_y_ma_sd * 3, NA, id_2_y),
+      id_3_x = ifelse(abs(id_3_x - id_3_x_ma_mean) > id_3_x_ma_sd * 3, NA, id_3_x),
+      id_3_y = ifelse(abs(id_3_y - id_3_y_ma_mean) > id_3_y_ma_sd * 3, NA, id_3_y),
+      id_4_x = ifelse(abs(id_4_x - id_4_x_ma_mean) > id_4_x_ma_sd * 3, NA, id_4_x),
+      id_4_y = ifelse(abs(id_4_y - id_4_y_ma_mean) > id_4_y_ma_sd * 3, NA, id_4_y),
+    ) %>%
+    mutate(
+      id_1_x = ifelse(is.na(id_1_y), NA, id_1_x),
+      id_1_y = ifelse(is.na(id_1_x), NA, id_1_y),
+      id_2_x = ifelse(is.na(id_2_y), NA, id_2_x),
+      id_2_y = ifelse(is.na(id_2_x), NA, id_2_y),
+      id_3_x = ifelse(is.na(id_3_y), NA, id_3_x),
+      id_3_y = ifelse(is.na(id_3_x), NA, id_3_y),
+      id_4_x = ifelse(is.na(id_4_y), NA, id_4_x),
+      id_4_y = ifelse(is.na(id_4_x), NA, id_4_y),
+    ) %>%
+    select( # 必要な変数のみをselect
+      time, id_1_x, id_1_y, id_2_x, id_2_y, id_3_x, id_3_y, id_4_x, id_4_y
+    )
+    
+  
+  mice_behavior_long <- mice_behavior_long %>%
+    # 一旦time以外の変数をWide形式 → Long形式に変換（処理の都合）
+    pivot_longer(cols = -time, 
+                 names_pattern = "id_([1-4])_([xy])",
+                 names_to = c("id", "axis")) %>%
+    pivot_wider(names_from = axis) # Axisはwide形式とする（idはlongのまま）
+
+  # ケージの中心を推定する
+  x <- mice_behavior_long$x
+  x <- x[!is.na(x)]
+  y <- mice_behavior_long$y
+  y <- y[!is.na(y)]
+  ox = optim(median(x),
+             function(cent, x_) sum(x_ > cent + cage_width / 2 | x_ < cent - cage_width / 2),
+             x_ = x, method = "Brent", lower = min(x), upper = max(x))$par
+  oy = optim(median(y),
+             function(cent, y_) sum(y_ > cent + cage_height / 2 | y_ < cent - cage_height / 2),
+             y_ = y, method = "Brent", lower = min(y), upper = max(y))$par
+  
+  mice_behavior_long %>%
+    mutate(  # ケージのサイズの1.1倍よりも外側の座標を先に除外する。
+      x = ifelse(x > ox + cage_width / 2 * scale | x < ox - cage_width / 2 * scale, NA, x),
+      y = ifelse(y > oy + cage_height / 2 * scale | y < oy - cage_height / 2 * scale, NA, y)
+    ) %>%
+    mutate(
+      x = ifelse(is.na(y), NA, x),
+      y = ifelse(is.na(x), NA, y)
+    ) %>%
+    group_nest(id) %>% # idごとに処理するためにnest
+    mutate(
+      # 各idが最初に出現する時刻求め、`mintime`として保存する
+      mintime = map(data, ~ drop_na(.)) %>% map(~ min(.$time)),
+      
+      # 座標の欠損値を線形補間（imputeTS::na_interpolation）
+      data = map(
+        data, # IDごとに分けたサブセットのデータフレームに対して、
+        ~ mutate(., across(-time, #時刻以外の列（=xy座標）の欠損値を線形補間
+                           ~ imputeTS::na_interpolation(., option = "linear")))
+      )
+    ) %>%
+    unnest(cols = c(data, mintime)) %>% # nestを解除
+    filter(time >= max(mintime)) %>% # すべてのidが出揃った時刻以降を使用する
+    select(-mintime) %>% # mintimeは以降使わないため外す
+    # 再度Long形式→Wide形式に戻す。
+    pivot_wider(names_from = id,
+                values_from = c(x, y),
+                names_glue = "id_{id}_{.value}") %>%
+    
+    mutate(
+      # time0: 開始時刻を0とした時刻
+      time0 = difftime(time, min(time), unit = "mins"),
+      
+      # move: 1フレームごとの移動距離（足し合わせたものが活動量activity）
+      id_1_move = sqrt((id_1_x - lag(id_1_x)) ^ 2 + (id_1_y - lag(id_1_y)) ^ 2),
+      id_2_move = sqrt((id_2_x - lag(id_2_x)) ^ 2 + (id_2_y - lag(id_2_y)) ^ 2),
+      id_3_move = sqrt((id_3_x - lag(id_3_x)) ^ 2 + (id_3_y - lag(id_3_y)) ^ 2),
+      id_4_move = sqrt((id_4_x - lag(id_4_x)) ^ 2 + (id_4_y - lag(id_4_y)) ^ 2),
+      
+      # dist: マウス間距離
+      dist_1_2 = sqrt((id_1_x - id_2_x) ^ 2 + (id_1_y - id_2_y) ^ 2),
+      dist_1_3 = sqrt((id_1_x - id_3_x) ^ 2 + (id_1_y - id_3_y) ^ 2),
+      dist_1_4 = sqrt((id_1_x - id_4_x) ^ 2 + (id_1_y - id_4_y) ^ 2),
+      dist_2_1 = dist_1_2,
+      dist_2_3 = sqrt((id_2_x - id_3_x) ^ 2 + (id_2_y - id_3_y) ^ 2),
+      dist_2_4 = sqrt((id_2_x - id_4_x) ^ 2 + (id_2_y - id_4_y) ^ 2),
+      dist_3_1 = dist_1_3,
+      dist_3_2 = dist_2_3,
+      dist_3_4 = sqrt((id_3_x - id_4_x) ^ 2 + (id_3_y - id_4_y) ^ 2),
+      dist_4_1 = dist_1_4,
+      dist_4_2 = dist_2_4,
+      dist_4_3 = dist_3_4,
+      
+      # 前後1秒間（`fps`フレーム）のmoveの移動和（Reverse, Forward）
+      across(ends_with("_move"),
+             list(rollR = ~ RcppRoll::roll_sum(., n = fps, align = "right", fill = NA),
+                  rollF = ~ RcppRoll::roll_sum(., n = fps, align = "left", fill = NA)))
+    )
+}
+```
+
+```{r}
+rm_out <- read_mice_behavior_remove_outliers(file.path("projects/iba1_bdnf/data", "0907-1-C2.csv"), fps = 20)
+```
+
+```{r}
+rm_out %>%
+  draw_trajectory(40, 1)
+```
+```{r}
+rm_out %>%
+  draw_trajectory(50, 1)
+```
+
+
