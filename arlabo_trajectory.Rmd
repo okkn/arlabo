@@ -44,7 +44,7 @@ behavior_oxtr_ed
 ```{r}
 draw_trajectory <- function(behavior, time_point, duration,
                             draw_id = c(1, 2, 3, 4),
-                            cage_width = 376, cage_height = 221) {
+                            cage_width = 380, cage_height = 225) {
   long <- behavior %>%
     select(
       time, id_1_x, id_1_y, id_2_x, id_2_y, id_3_x, id_3_y, id_4_x, id_4_y
