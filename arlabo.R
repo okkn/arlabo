@@ -1017,7 +1017,10 @@ plot_arlabo_bin <- function(project_dir, bin_within_time, bin_width,
                     paste0("dist_bin", str_pad(b, 2, pad = "0"),
                            "_", bin_within_time, "min.csv"))
     } else if (var_name %in% c("bin_event_count", "bin_approach_count",
-                               "bin_receive_count", "bin_duration",
+                               "bin_receive_count",
+                               "bin_event_cumul", "bin_approach_cumul",
+                               "bin_receive_cumul",
+                               "bin_duration",
                                "bin_approach_duration",
                                "bin_receive_duration")){
       f = file.path(project_dir, "temp", "inter",
