@@ -126,12 +126,25 @@ read_mice_info <- function(file_path, mice_list) {
 #'
 #' @param file_path 「AR-laboが出力したCSVファイル」のファイルパスを表す文字列
 #' @param fps 元の動画のfps（フレーム/秒、1秒あたりのフレーム数）の数値
-#'
+#' @param rm_z_outlier z値に基づき外れ値の座標を除外するかどうかのフラグ
+#' @param z_threshold z値に基づき外れ値を除外する場合の閾値
+#' @param rm_cage_outlier 推定されるケージの外側の座標を除外するかどうかのフラグ
+#' @param cage_scale_threshold ケージの範囲の何倍より外側を除去するかの閾値
+#' @param cage_width ケージの横幅
+#' @param cage_height ケージの高さ
+#' 
 #' @return 各時刻における、各マウスの座標とマウス間距離のデータフレーム
 #'
 #' @examples
 #' read_exp_behavior("./data/0522-3-C1.csv")
-read_mice_behavior <- function(file_path, fps) {
+read_mice_behavior <- function(file_path, fps, 
+                               rm_z_outlier = F,
+                               z_threshold = 3,
+                               rm_cage_outlier = F,
+                               cage_scale_threshold = 1.1,
+                               cage_width = 376,
+                               cage_height = 221
+) {
   # メタデータの13行分をskipして座標のデータをデータフレームとして読み込む
   mice_behavior <- read_csv(file_path, skip = 13, show_col_types = F) %>%
     suppressWarnings()
@@ -169,17 +182,86 @@ read_mice_behavior <- function(file_path, fps) {
       )
   }
   
-  mice_behavior %>%
+  # 2秒間(2×fpsのwindows)の移動平均/分散から計算したz値で外れ値の座標を除外
+  if (rm_z_outlier) {
+    mice_behavior <- mice_behavior %>%
+      mutate(
+        id_1_x_ma_mean = RcppRoll::roll_mean(id_1_x, n = 2 * fps, fill = NA, na.rm = TRUE),
+        id_1_x_ma_sd = RcppRoll::roll_sd(id_1_x, n = 2 * fps, fill = NA, na.rm = TRUE),
+        id_1_y_ma_mean = RcppRoll::roll_mean(id_1_y, n = 2 * fps, fill = NA, na.rm = TRUE),
+        id_1_y_ma_sd = RcppRoll::roll_sd(id_1_y, n = 2 * fps, fill = NA, na.rm = TRUE),
+        id_2_x_ma_mean = RcppRoll::roll_mean(id_2_x, n = 2 * fps, fill = NA, na.rm = TRUE),
+        id_2_x_ma_sd = RcppRoll::roll_sd(id_2_x, n = 2 * fps, fill = NA, na.rm = TRUE),
+        id_2_y_ma_mean = RcppRoll::roll_mean(id_2_y, n = 2 * fps, fill = NA, na.rm = TRUE),
+        id_2_y_ma_sd = RcppRoll::roll_sd(id_2_y, n = 2 * fps, fill = NA, na.rm = TRUE),
+        id_3_x_ma_mean = RcppRoll::roll_mean(id_3_x, n = 2 * fps, fill = NA, na.rm = TRUE),
+        id_3_x_ma_sd = RcppRoll::roll_sd(id_3_x, n = 2 * fps, fill = NA, na.rm = TRUE),
+        id_3_y_ma_mean = RcppRoll::roll_mean(id_3_y, n = 2 * fps, fill = NA, na.rm = TRUE),
+        id_3_y_ma_sd = RcppRoll::roll_sd(id_3_y, n = 2 * fps, fill = NA, na.rm = TRUE),
+        id_4_x_ma_mean = RcppRoll::roll_mean(id_4_x, n = 2 * fps, fill = NA, na.rm = TRUE),
+        id_4_x_ma_sd = RcppRoll::roll_sd(id_4_x, n = 2 * fps, fill = NA, na.rm = TRUE),
+        id_4_y_ma_mean = RcppRoll::roll_mean(id_4_y, n = 2 * fps, fill = NA, na.rm = TRUE),
+        id_4_y_ma_sd = RcppRoll::roll_sd(id_4_y, n = 2 * fps, fill = NA, na.rm = TRUE),
+      ) %>%
+      mutate(  # 前後2秒の移動平均から3sd以上離れている座標は除外する。
+        id_1_x = ifelse(abs(id_1_x - id_1_x_ma_mean) > id_1_x_ma_sd * z_threshold, NA, id_1_x),
+        id_1_y = ifelse(abs(id_1_y - id_1_y_ma_mean) > id_1_y_ma_sd * z_threshold, NA, id_1_y),
+        id_2_x = ifelse(abs(id_2_x - id_2_x_ma_mean) > id_2_x_ma_sd * z_threshold, NA, id_2_x),
+        id_2_y = ifelse(abs(id_2_y - id_2_y_ma_mean) > id_2_y_ma_sd * z_threshold, NA, id_2_y),
+        id_3_x = ifelse(abs(id_3_x - id_3_x_ma_mean) > id_3_x_ma_sd * z_threshold, NA, id_3_x),
+        id_3_y = ifelse(abs(id_3_y - id_3_y_ma_mean) > id_3_y_ma_sd * z_threshold, NA, id_3_y),
+        id_4_x = ifelse(abs(id_4_x - id_4_x_ma_mean) > id_4_x_ma_sd * z_threshold, NA, id_4_x),
+        id_4_y = ifelse(abs(id_4_y - id_4_y_ma_mean) > id_4_y_ma_sd * z_threshold, NA, id_4_y),
+      ) %>%
+      mutate(  # x, yのいずれかが除去されたいた場合、座標のもう一方のy, xも除去。
+        id_1_x = ifelse(is.na(id_1_y), NA, id_1_x),
+        id_1_y = ifelse(is.na(id_1_x), NA, id_1_y),
+        id_2_x = ifelse(is.na(id_2_y), NA, id_2_x),
+        id_2_y = ifelse(is.na(id_2_x), NA, id_2_y),
+        id_3_x = ifelse(is.na(id_3_y), NA, id_3_x),
+        id_3_y = ifelse(is.na(id_3_x), NA, id_3_y),
+        id_4_x = ifelse(is.na(id_4_y), NA, id_4_x),
+        id_4_y = ifelse(is.na(id_4_x), NA, id_4_y),
+      )
+  }  # end of `if (rm_z_outlier)`
+  
+  mice_behavior_long <- mice_behavior %>%
     select( # 必要な変数のみをselect
       time, id_1_x, id_1_y, id_2_x, id_2_y, id_3_x, id_3_y, id_4_x, id_4_y
     ) %>%
     distinct(time, .keep_all = T) %>% # timeに重複がないことを保証
-    
     # 一旦time以外の変数をWide形式 → Long形式に変換（処理の都合）
     pivot_longer(cols = -time, 
                  names_pattern = "id_([1-4])_([xy])",
                  names_to = c("id", "axis")) %>%
-    pivot_wider(names_from = axis) %>% # Axisはwide形式とする（idはlongのまま）
+    pivot_wider(names_from = axis) # Axisはwide形式とする（idはlongのまま）
+  
+  # マウスのケージの範囲を推定して、ケージの1.1倍よりも外側の外れ値を除去する。
+  if (rm_cage_outlier) {
+    # ケージの中心を推定する
+    x <- mice_behavior_long$x
+    x <- x[!is.na(x)]
+    y <- mice_behavior_long$y
+    y <- y[!is.na(y)]
+    ox = optim(median(x),
+               function(cent, x_) sum(x_ > cent + cage_width / 2 | x_ < cent - cage_width / 2),
+               x_ = x, method = "Brent", lower = min(x), upper = max(x))$par
+    oy = optim(median(y),
+               function(cent, y_) sum(y_ > cent + cage_height / 2 | y_ < cent - cage_height / 2),
+               y_ = y, method = "Brent", lower = min(y), upper = max(y))$par
+    
+    mice_behavior_long <- mice_behavior_long %>%
+      mutate(  # ケージのサイズの1.1倍よりも外側の座標を除外する。
+        x = ifelse(x > ox + cage_width / 2 * cage_scale_threshold | x < ox - cage_width / 2 * cage_scale_threshold, NA, x),
+        y = ifelse(y > oy + cage_height / 2 * cage_scale_threshold | y < oy - cage_height / 2 * cage_scale_threshold, NA, y)
+      ) %>%
+      mutate(  # x, yのいずれかが除去されたなら、座標のもう一方のy, xも除去する
+        x = ifelse(is.na(y), NA, x),
+        y = ifelse(is.na(x), NA, y)
+      )
+  }  # end of `if (rm_cage_outlier)`
+  
+  mice_behavior_long %>%
     group_nest(id) %>% # idごとに処理するためにnest
     mutate(
       # 各idが最初に出現する時刻求め、`mintime`として保存する
@@ -230,6 +312,7 @@ read_mice_behavior <- function(file_path, fps) {
                   rollF = ~ RcppRoll::roll_sum(., n = fps, align = "left", fill = NA)))
     )
 }
+
 
 #' マウス間距離の閾値を指定してinteractionの解析に使うデータを準備
 #'
