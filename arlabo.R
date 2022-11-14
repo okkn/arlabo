@@ -142,8 +142,8 @@ read_mice_behavior <- function(file_path, fps,
                                z_threshold = 3,
                                rm_cage_outlier = F,
                                cage_scale_threshold = 1.1,
-                               cage_width = 376,
-                               cage_height = 221
+                               cage_width = 380,
+                               cage_height = 225
 ) {
   # メタデータの13行分をskipして座標のデータをデータフレームとして読み込む
   mice_behavior <- read_csv(file_path, skip = 13, show_col_types = F) %>%
@@ -202,26 +202,32 @@ read_mice_behavior <- function(file_path, fps,
         id_4_x_ma_sd = RcppRoll::roll_sd(id_4_x, n = 2 * fps, fill = NA, na.rm = TRUE),
         id_4_y_ma_mean = RcppRoll::roll_mean(id_4_y, n = 2 * fps, fill = NA, na.rm = TRUE),
         id_4_y_ma_sd = RcppRoll::roll_sd(id_4_y, n = 2 * fps, fill = NA, na.rm = TRUE),
-      ) %>%
-      mutate(  # 前後2秒の移動平均から3sd以上離れている座標は除外する。
-        id_1_x = ifelse(abs(id_1_x - id_1_x_ma_mean) > id_1_x_ma_sd * z_threshold, NA, id_1_x),
-        id_1_y = ifelse(abs(id_1_y - id_1_y_ma_mean) > id_1_y_ma_sd * z_threshold, NA, id_1_y),
-        id_2_x = ifelse(abs(id_2_x - id_2_x_ma_mean) > id_2_x_ma_sd * z_threshold, NA, id_2_x),
-        id_2_y = ifelse(abs(id_2_y - id_2_y_ma_mean) > id_2_y_ma_sd * z_threshold, NA, id_2_y),
-        id_3_x = ifelse(abs(id_3_x - id_3_x_ma_mean) > id_3_x_ma_sd * z_threshold, NA, id_3_x),
-        id_3_y = ifelse(abs(id_3_y - id_3_y_ma_mean) > id_3_y_ma_sd * z_threshold, NA, id_3_y),
-        id_4_x = ifelse(abs(id_4_x - id_4_x_ma_mean) > id_4_x_ma_sd * z_threshold, NA, id_4_x),
-        id_4_y = ifelse(abs(id_4_y - id_4_y_ma_mean) > id_4_y_ma_sd * z_threshold, NA, id_4_y),
-      ) %>%
-      mutate(  # x, yのいずれかが除去されたいた場合、座標のもう一方のy, xも除去。
-        id_1_x = ifelse(is.na(id_1_y), NA, id_1_x),
-        id_1_y = ifelse(is.na(id_1_x), NA, id_1_y),
-        id_2_x = ifelse(is.na(id_2_y), NA, id_2_x),
-        id_2_y = ifelse(is.na(id_2_x), NA, id_2_y),
-        id_3_x = ifelse(is.na(id_3_y), NA, id_3_x),
-        id_3_y = ifelse(is.na(id_3_x), NA, id_3_y),
-        id_4_x = ifelse(is.na(id_4_y), NA, id_4_x),
-        id_4_y = ifelse(is.na(id_4_x), NA, id_4_y),
+        
+        # 前後2秒の移動平均から`z_threshold`以上離れている座標は除外する。
+        id_1_outlier = abs(id_1_x - id_1_x_ma_mean) > id_1_x_ma_sd * z_threshold |
+          abs(id_1_y - id_1_y_ma_mean) > id_1_y_ma_sd * z_threshold,
+        id_2_outlier = abs(id_2_x - id_2_x_ma_mean) > id_2_x_ma_sd * z_threshold |
+          abs(id_2_y - id_2_y_ma_mean) > id_2_y_ma_sd * z_threshold,
+        id_3_outlier = abs(id_3_x - id_3_x_ma_mean) > id_3_x_ma_sd * z_threshold |
+          abs(id_3_y - id_3_y_ma_mean) > id_3_y_ma_sd * z_threshold,
+        id_4_outlier = abs(id_4_x - id_4_x_ma_mean) > id_4_x_ma_sd * z_threshold |
+          abs(id_4_y - id_4_y_ma_mean) > id_4_y_ma_sd * z_threshold,
+        
+        # 外れ値のあったフレームは他のマウスの座標も信頼できないため除外する。
+        # `NA | FALSE == NA`であり、ifelseにNAを渡すとNAが返るため、FALSEに置換
+        any_outlier = ifelse(is.na(id_1_outlier), FALSE, id_1_outlier) |
+          ifelse(is.na(id_2_outlier), FALSE, id_2_outlier) |
+          ifelse(is.na(id_3_outlier), FALSE, id_3_outlier) |
+          ifelse(is.na(id_4_outlier), FALSE, id_4_outlier),
+        
+        id_1_x = ifelse(any_outlier, NA, id_1_x),
+        id_1_y = ifelse(any_outlier, NA, id_1_y),
+        id_2_x = ifelse(any_outlier, NA, id_2_x),
+        id_2_y = ifelse(any_outlier, NA, id_2_y),
+        id_3_x = ifelse(any_outlier, NA, id_3_x),
+        id_3_y = ifelse(any_outlier, NA, id_3_y),
+        id_4_x = ifelse(any_outlier, NA, id_4_x),
+        id_4_y = ifelse(any_outlier, NA, id_4_y),
       )
   }  # end of `if (rm_z_outlier)`
   
